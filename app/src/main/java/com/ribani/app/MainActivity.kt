@@ -57,11 +57,7 @@ class MainActivity : ComponentActivity() {
 
     private fun startMonitoringService() {
         val serviceIntent = Intent(this, RibaniMonitoringService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            ContextCompat.startForegroundService(this, serviceIntent)
-        } else {
-            startService(serviceIntent)
-        }
+        ContextCompat.startForegroundService(this, serviceIntent)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(
                 this,

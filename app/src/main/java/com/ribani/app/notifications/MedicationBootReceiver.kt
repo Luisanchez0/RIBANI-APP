@@ -1,0 +1,15 @@
+package com.ribani.app.notifications
+
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+
+class MedicationBootReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context?, intent: Intent?) {
+        if (intent?.action == Intent.ACTION_BOOT_COMPLETED ||
+            intent?.action == "android.intent.action.LOCKED_BOOT_COMPLETED"
+        ) {
+            // Reagendar alarmas tras reinicio del sistema
+        }
+    }
+}

@@ -35,13 +35,14 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.ribani.app.data.repository.MedicationRepository
-import com.ribani.app.screens.medication.MedicationDetailScreen
-import com.ribani.app.screens.medication.MedicationHistoryScreen
-import com.ribani.app.screens.medication.MedicationScreen
+import com.ribani.app.screens.auth.LoginScreen
 import com.ribani.app.screens.contacts.ContactsScreen
 import com.ribani.app.screens.fall.FallAlertScreen
 import com.ribani.app.screens.home.HomeScreen
 import com.ribani.app.screens.location.LocationScreen
+import com.ribani.app.screens.medication.MedicationDetailScreen
+import com.ribani.app.screens.medication.MedicationHistoryScreen
+import com.ribani.app.screens.medication.MedicationScreen
 import com.ribani.app.screens.settings.SettingsScreen
 import com.ribani.app.sensors.FallAlertEvents
 
@@ -53,6 +54,16 @@ fun AppNavigation(
     val navController = rememberNavController()
     val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
     val medicationUiState = MedicationRepository.uiState.collectAsState().value
+
+    fun navigateToTab(route: String) {
+        navController.navigate(route) {
+            popUpTo(navController.graph.startDestinationId) {
+                saveState = true
+            }
+            launchSingleTop = true
+            restoreState = true
+        }
+    }
 
     LaunchedEffect(initialMedicationId) {
         if (!initialMedicationId.isNullOrBlank()) {
@@ -73,13 +84,13 @@ fun AppNavigation(
     Scaffold(
         containerColor = Color.White,
         bottomBar = {
-            if (currentRoute != "fall") {
+            if (currentRoute != "fall" && currentRoute != "login") {
                 BottomNavigationBar(
-                    onHomeClick = { navController.navigate("home") },
-                    onMedicationClick = { navController.navigate("medication") },
-                    onLocationClick = { navController.navigate("location") },
-                    onContactsClick = { navController.navigate("contacts") },
-                    onSettingsClick = { navController.navigate("settings") }
+                    onHomeClick = { navigateToTab("home") },
+                    onMedicationClick = { navigateToTab("medication") },
+                    onLocationClick = { navigateToTab("location") },
+                    onContactsClick = { navigateToTab("contacts") },
+                    onSettingsClick = { navigateToTab("settings") }
                 )
             }
         }
@@ -92,6 +103,16 @@ fun AppNavigation(
                 .background(Color.White)
                 .padding(innerPadding)
         ) {
+            composable("login") {
+                LoginScreen(
+                    onLoginSuccess = {
+                        navController.navigate("home") {
+                            popUpTo("login") { inclusive = true }
+                        }
+                    }
+                )
+            }
+
             composable("home") {
                 HomeScreen(
                     onSosClick = {
@@ -143,7 +164,15 @@ fun AppNavigation(
             }
 
             composable("settings") {
-                SettingsScreen()
+                SettingsScreen(
+                    onLogout = {
+                        navController.navigate("login") {
+                            popUpTo(navController.graph.startDestinationId) {
+                                inclusive = true
+                            }
+                        }
+                    }
+                )
             }
 
             composable("fall") {
