@@ -1,9 +1,9 @@
 package com.ribani.app.screens.home
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -15,14 +15,18 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.HealthAndSafety
+import androidx.compose.material.icons.rounded.Sos
+import androidx.compose.material.icons.rounded.Verified
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -30,7 +34,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.material.icons.outlined.Shield
+import com.ribani.app.ui.theme.ContenedorVerdeSuave
+import com.ribani.app.ui.theme.Rojo
+import com.ribani.app.ui.theme.TextoPrincipal
+import com.ribani.app.ui.theme.VerdeClaro
+import com.ribani.app.ui.theme.VerdeEstadoOk
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -42,7 +50,7 @@ fun HomeScreen(
     onSosClick: () -> Unit,
     isMonitoring: Boolean
 ) {
-    val currentTime = remember { androidx.compose.runtime.mutableStateOf(LocalTime.now()) }
+    val currentTime = remember { mutableStateOf(LocalTime.now()) }
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -51,104 +59,82 @@ fun HomeScreen(
         }
     }
 
-    // Colores de RIBANI
-    val backgroundColor = Color.White
-    val greenColor = Color(0xFF4CAF50)
-    val darkGreenColor = Color(0xFF006B3C)
-    val redColor = Color(0xFFC62828)
-    val lightGrayColor = Color(0xFFEEEEEE)
-    val textColor = Color(0xFF151515)
-
-
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(backgroundColor)
+            .background(VerdeClaro.copy(alpha = 0.12f))
     ) {
-
 
         Column(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
                 .padding(horizontal = 24.dp),
-
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
 
-            Spacer(
-                modifier = Modifier.height(55.dp)
-            )
+            Spacer(modifier = Modifier.height(48.dp))
 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    imageVector = Icons.Outlined.Shield,
+                    imageVector = Icons.Rounded.HealthAndSafety,
                     contentDescription = null,
                     modifier = Modifier.size(72.dp),
-                    tint = Color(0xFF63B52A)
+                    tint = VerdeClaro
                 )
                 Column(modifier = Modifier.padding(start = 16.dp)) {
                     Text(
                         text = "RIBANI",
                         fontSize = 38.sp,
-                        fontWeight = FontWeight.Normal,
-                        color = Color.Black
+                        fontWeight = FontWeight.Bold,
+                        color = TextoPrincipal
                     )
                     Text(
                         text = "Guardia de caídas",
                         fontSize = 17.sp,
-                        color = Color.Black
+                        color = TextoPrincipal
                     )
                 }
             }
 
+            Spacer(modifier = Modifier.height(28.dp))
 
-            Spacer(
-                modifier = Modifier.height(35.dp)
-            )
-
+            // Estado del sistema: chip flotante sobre la tarjeta
             Row(
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .background(ContenedorVerdeSuave)
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
-
                 Box(
                     modifier = Modifier
                         .size(14.dp)
                         .clip(CircleShape)
-                        .background(greenColor)
+                        .background(if (isMonitoring) VerdeEstadoOk else Rojo)
                 )
-
-                Spacer(
-                    modifier = Modifier.width(8.dp)
-                )
-
+                Spacer(modifier = Modifier.width(10.dp))
                 Text(
                     text = if (isMonitoring) {
-                        "Sistema Activado y Monitoreando"
+                        "Sistema activado y monitoreando"
                     } else {
                         "Sensores no disponibles"
                     },
                     fontSize = 15.sp,
-                    color = textColor
+                    fontWeight = FontWeight.Medium,
+                    color = TextoPrincipal
                 )
             }
 
+            Spacer(modifier = Modifier.height(16.dp))
 
-            Spacer(
-                modifier = Modifier.height(40.dp)
-            )
-
+            // Tarjeta de estado principal
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(
-                        color = lightGrayColor,
-                        shape = RoundedCornerShape(4.dp)
-                    )
-                    .padding(
-                        vertical = 24.dp
-                    ),
-
+                    .clip(RoundedCornerShape(28.dp))
+                    .background(Color.White)
+                    .padding(vertical = 28.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
 
@@ -157,75 +143,70 @@ fun HomeScreen(
                         DateTimeFormatter.ofPattern("hh:mm a", Locale.getDefault())
                     ),
                     fontSize = 42.sp,
-                    color = textColor
+                    fontWeight = FontWeight.SemiBold,
+                    color = TextoPrincipal
                 )
 
+                Spacer(modifier = Modifier.height(24.dp))
 
-                Spacer(
-                    modifier = Modifier.height(20.dp)
+                Icon(
+                    imageVector = Icons.Rounded.Verified,
+                    contentDescription = if (isMonitoring) "Todo está bien" else "Atención requerida",
+                    modifier = Modifier.size(84.dp),
+                    tint = if (isMonitoring) VerdeEstadoOk else Rojo
                 )
 
-                Box(
-                    modifier = Modifier
-                        .size(86.dp)
-                        .clip(CircleShape)
-                        .background(greenColor),
+                Spacer(modifier = Modifier.height(12.dp))
 
-                    contentAlignment = Alignment.Center
-                ) {
+                Text(
+                    text = if (isMonitoring) "Todo está bien" else "Monitoreo inactivo",
+                    fontSize = 26.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = TextoPrincipal
+                )
 
+                Text(
+                    text = if (isMonitoring) "No hay alertas recientes" else "Revisa la conexión de sensores",
+                    fontSize = 18.sp,
+                    color = Color(0xFF697077),
+                    modifier = Modifier.padding(top = 6.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Button(
+                onClick = onSosClick,
+                modifier = Modifier.size(140.dp),
+                shape = CircleShape,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Rojo
+                ),
+                contentPadding = PaddingValues(0.dp)
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        imageVector = Icons.Rounded.Sos,
+                        contentDescription = null,
+                        modifier = Modifier.size(40.dp),
+                        tint = Color.White
+                    )
                     Text(
-                        text = "✓",
-                        fontSize = 54.sp,
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold
+                        text = "SOS",
+                        fontSize = 32.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
                     )
                 }
-
-
-                Spacer(
-                    modifier = Modifier.height(15.dp)
-                )
-
-
-                Text(
-                    text = "Todo está bien.",
-                    fontSize = 27.sp,
-                    color = textColor
-                )
-
-                Text(
-                    text = "No hay Alertas Recientes",
-                    fontSize = 25.sp,
-                    color = textColor
-                )
             }
 
+            Spacer(modifier = Modifier.height(16.dp))
 
-            Spacer(
-                modifier = Modifier.height(25.dp)
+            Text(
+                text = "Toca el botón para pedir ayuda de inmediato",
+                fontSize = 14.sp,
+                color = Color(0xFF697077)
             )
-
-            androidx.compose.material3.Button(
-                onClick = onSosClick,
-
-                modifier = Modifier.size(130.dp),
-
-                shape = CircleShape,
-
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFFC62828)
-                )
-            ) {
-
-                Text(
-                    text = "SOS",
-                    fontSize = 34.sp,
-                    color = Color.White
-                )
-            }
         }
-
-
     }
 }

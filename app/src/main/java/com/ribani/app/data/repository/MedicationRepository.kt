@@ -1,9 +1,25 @@
 package com.ribani.app.data.repository
 
 import android.content.Context
+import com.ribani.app.data.local.SessionManager
+import com.ribani.app.data.remote.ApiClient
+import com.ribani.app.data.remote.ActualizarTomaRequest
+import com.ribani.app.data.remote.MedicamentoResponse
+import com.ribani.app.data.remote.TomaResponse
+import com.ribani.app.notifications.MedicationAlarmScheduler
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 enum class MedicationStatus {
     PENDING, TAKEN, POSTPONED, OMITTED
@@ -15,7 +31,11 @@ data class MedicationOccurrence(
     val name: String,
     val dosage: String,
     val time: String,
-    val status: MedicationStatus = MedicationStatus.PENDING
+    val status: MedicationStatus = MedicationStatus.PENDING,
+    /** programada_para original (ISO 8601) para programar alarmas exactas. */
+    val programadaIso: String? = null,
+    /** Instrucciones del medicamento (del catálogo GET /medicamentos). */
+    val instrucciones: String? = null,
 )
 
 data class Medication(
@@ -30,61 +50,282 @@ data class Medication(
 data class MedicationUiState(
     val pendingMedications: List<MedicationOccurrence> = emptyList(),
     val medications: List<Medication> = emptyList(),
-    val history: List<MedicationOccurrence> = emptyList()
+    val history: List<MedicationOccurrence> = emptyList(),
+    /** true cuando los datos vienen del backend (no de los demo). */
+    val cargado: Boolean = false,
+    /** true mientras corre un refresco iniciado por pull-to-refresh. */
+    val refrescando: Boolean = false,
+    /** Mensaje de estado para la UI (offline/demo). */
+    val mensajeEstado: String? = null
 )
 
+/**
+ * Repositorio de medicamentos alimentado por el backend (GET /tomas y
+ * PATCH /tomas/{id}), a la par del panel web:
+ *
+ * - "Pendientes de hoy": tomas PENDIENTE programadas para hoy.
+ * - "Historial": últimas tomas TOMADA/OMITIDA (para TOMADA se muestra
+ *   la hora real tomada_en si existe).
+ * - "Mis medicamentos": derivado de las tomas (el alta/edición de
+ *   medicamentos la hace el familiar desde su panel web).
+ * - Sin sesión o sin conexión: se conservan los datos demo como
+ *   fallback de UI; las acciones no pegan al backend sin sesión.
+ */
 object MedicationRepository {
-    private val _uiState = MutableStateFlow(
-        MedicationUiState(
-            pendingMedications = listOf(
-                MedicationOccurrence("occ_1", "med_1", "Paracetamol", "500 mg", "08:00 AM"),
-                MedicationOccurrence("occ_2", "med_2", "Enalapril", "10 mg", "02:00 PM"),
-                MedicationOccurrence("occ_3", "med_3", "Omeprazol", "20 mg", "08:00 PM")
-            ),
-            medications = listOf(
-                Medication("med_1", "Paracetamol", "500 mg", "Cada 8 horas", "Tomar con abundante agua"),
-                Medication("med_2", "Enalapril", "10 mg", "Cada 12 horas", "Tomar después de las comidas"),
-                Medication("med_3", "Omeprazol", "20 mg", "Cada 24 horas", "Tomar en ayunas")
-            ),
-            history = listOf(
-                MedicationOccurrence("occ_prev_1", "med_1", "Paracetamol", "500 mg", "Ayer 08:00 PM", MedicationStatus.TAKEN),
-                MedicationOccurrence("occ_prev_2", "med_2", "Enalapril", "10 mg", "Ayer 08:00 AM", MedicationStatus.TAKEN)
-            )
-        )
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val formatoHora = DateTimeFormatter.ofPattern("hh:mm a")
+    private val formatoDiaHora = DateTimeFormatter.ofPattern("'Ayer', hh:mm a'.'")
+
+    /** Datos demo de respaldo (offline/sin sesión) para no dejar vacío. */
+    private val demoState = MedicationUiState(
+        pendingMedications = listOf(
+            MedicationOccurrence("occ_demo_1", "med_demo_1", "Paracetamol", "500 mg", "08:00 AM"),
+            MedicationOccurrence("occ_demo_2", "med_demo_2", "Enalapril", "10 mg", "02:00 PM")
+        ),
+        medications = listOf(
+            Medication("med_demo_1", "Paracetamol", "500 mg", "Cada 8 horas", "Tomar con abundante agua"),
+            Medication("med_demo_2", "Enalapril", "10 mg", "Cada 12 horas", "Tomar después de las comidas")
+        ),
+        history = emptyList(),
+        cargado = false,
+        mensajeEstado = "Sin conexión con el servidor: datos de demostración."
     )
+
+    private val _uiState = MutableStateFlow(demoState)
     val uiState: StateFlow<MedicationUiState> = _uiState.asStateFlow()
 
     fun initialize(context: Context) {
-        // Inicialización de la gestión de medicamentos
+        scope.launch {
+            val manager = SessionManager(context)
+
+            if (!manager.isLoggedIn.first()) {
+                _uiState.value = demoState
+                return@launch
+            }
+
+            refrescar(context)
+        }
     }
 
-    fun markTaken(occurrenceId: String) {
-        val current = _uiState.value
-        val item = current.pendingMedications.find { it.id == occurrenceId } ?: return
-        val updatedPending = current.pendingMedications.filter { it.id != occurrenceId }
-        val updatedHistory = current.history + item.copy(status = MedicationStatus.TAKEN)
-        _uiState.value = current.copy(
-            pendingMedications = updatedPending,
-            history = updatedHistory
-        )
+    /** Recarga del backend: pendientes de hoy + historial reciente. */
+    suspend fun refrescar(context: Context) {
+        val manager = SessionManager(context)
+
+        if (!manager.isLoggedIn.first()) {
+            _uiState.value = demoState
+            return
+        }
+
+        // Pull-to-refresh: indicador visible durante la recarga.
+        _uiState.value = _uiState.value.copy(refrescando = true)
+
+        try {
+            val zona = ZoneId.systemDefault()
+            val hoy = LocalDate.now(zona)
+            val desde = hoy.atStartOfDay(zona).toInstant().toString()
+            val hasta = hoy.plusDays(1).atStartOfDay(zona).toInstant().toString()
+            // Hasta 7 días de historial recargas de historial.
+            val desdeHistorial = hoy.minusDays(7)
+                .atStartOfDay(zona).toInstant().toString()
+
+            // Paralelo: catálogo real de medicamentos + tomas.
+            // GET /tomas no trae el nombre del medicamento (solo su id);
+            // el catálogo se cruza aquí para mostrar el nombre real en
+            // pendientes, alarma e historial.
+            val catalogo = ApiClient.medicamentosService.listarMedicamentos(
+                soloActivos = "false",
+            )
+            // id → medicamento, para cruzar el nombre real en cada toma
+            // (incluye inactivos: el historial debe mostrar el nombre
+            // aunque el medicamento ya esté eliminado).
+            val nombrePorId: Map<String, MedicamentoResponse> =
+                catalogo.associateBy { it.id }
+
+            val tomasPendientes = ApiClient.medicamentosService.listarTomas(
+                estado = "PENDIENTE",
+                desde = desde,
+                hasta = hasta,
+            )
+            val tomasRegistradas = ApiClient.medicamentosService.listarTomas(
+                estado = "TOMADA",
+                desde = desdeHistorial,
+                hasta = hasta,
+            )
+            val tomasOmitidas = ApiClient.medicamentosService.listarTomas(
+                estado = "OMITIDA",
+                desde = desdeHistorial,
+                hasta = hasta,
+            )
+
+            val pendientesUI = tomasPendientes.map { it.aOcurrencia(nombrePorId) }
+
+            // Tarjetas "Mis medicamentos" desde el catálogo real del
+            // backend; los horarios mostrados se derivan de las tomas
+            // vistas. Se excluyen inactivos (p. ej. medicamentos
+            // eliminados): no deben aparecer como tarjetas actuales.
+            // Se ordenan por nombre para lectura estable.
+            val catalogoUI = catalogo
+                .asSequence()
+                .filter { it.activo }
+                .map { medicamento ->
+                    val tomasDelMedicamento =
+                        (tomasPendientes + tomasRegistradas + tomasOmitidas)
+                            .filter { it.medicamento_id == medicamento.id }
+                    val horarioTexto = tomasDelMedicamento
+                        .map { it.programadaParaLocal().format(formatoHora) }
+                        .distinct()
+                        .take(4)
+                        .joinToString(" · ")
+                    Medication(
+                        id = medicamento.id,
+                        name = medicamento.nombre,
+                        dosage = "${medicamento.dosis} ${medicamento.unidad_dosis}",
+                        schedule = horarioTexto.ifEmpty { "Según lo programado" },
+                        instructions = medicamento.instrucciones ?: "",
+                    )
+                }
+                .sortedBy { it.name.lowercase() }
+                .toList()
+
+            val historialUI = (tomasRegistradas + tomasOmitidas)
+                .sortedByDescending { it.programada_para }
+                .map { it.aOcurrenciaHistorial(nombrePorId) }
+
+            _uiState.value = MedicationUiState(
+                pendingMedications = pendientesUI,
+                medications = catalogoUI,
+                history = historialUI,
+                cargado = true,
+                refrescando = false,
+                mensajeEstado = null
+            )
+
+            // Con el estado fresco del backend, reprograma las alarmas de
+            // las tomas pendientes de hoy ( MedicationAlarmScheduler).
+            MedicationAlarmScheduler.programarPendientes(context)
+        } catch (e: Exception) {
+            // Sin red/401/etc.: conservar lo que haya (o demo) y avisar.
+            _uiState.value =
+                (_uiState.value.takeIf { it.cargado } ?: demoState)
+                    .copy(
+                        refrescando = false,
+                        mensajeEstado = "No se pudo actualizar: ${e.message ?: "sin conexión"}"
+                    )
+        }
     }
 
+    /** PATCH /tomas/{id} con estado TOMADA (ventana del horario la valida el server). */
+    fun markTaken(context: Context, occurrenceId: String) {
+        actualizar(context, occurrenceId, ActualizarTomaRequest(estado = "TOMADA"))
+    }
+
+    /** PATCH /tomas/{id} con estado OMITIDA (sin ventana, como en la web). */
+    fun markOmitted(context: Context, occurrenceId: String) {
+        actualizar(context, occurrenceId, ActualizarTomaRequest(estado = "OMITIDA"))
+    }
+
+    /**
+     * Posponer: el backend no define estado POSTPONED (solo TOMADA/OMITIDA),
+     * igual que en la web la opción disponible es mover la toma.
+     * Aquí se queda local (badge) sin tocar el backend; persistencia real
+     * de "posponer" requeriría endpoint (Pendiente en servidor).
+     */
     fun postpone(occurrenceId: String) {
         val current = _uiState.value
-        val updatedPending = current.pendingMedications.map {
-            if (it.id == occurrenceId) it.copy(status = MedicationStatus.POSTPONED) else it
-        }
-        _uiState.value = current.copy(pendingMedications = updatedPending)
-    }
-
-    fun markOmitted(occurrenceId: String) {
-        val current = _uiState.value
-        val item = current.pendingMedications.find { it.id == occurrenceId } ?: return
-        val updatedPending = current.pendingMedications.filter { it.id != occurrenceId }
-        val updatedHistory = current.history + item.copy(status = MedicationStatus.OMITTED)
         _uiState.value = current.copy(
-            pendingMedications = updatedPending,
-            history = updatedHistory
+            pendingMedications = current.pendingMedications.map {
+                if (it.id == occurrenceId) {
+                    it.copy(status = MedicationStatus.POSTPONED)
+                } else {
+                    it
+                }
+            }
         )
     }
+
+    private fun actualizar(
+        context: Context,
+        occurrenceId: String,
+        cambio: ActualizarTomaRequest,
+    ) {
+        // Solo si la lista es del backend (id UUID real, no demo).
+        if (!_uiState.value.cargado) return
+
+        scope.launch {
+            try {
+                ApiClient.medicamentosService.actualizarToma(occurrenceId, cambio)
+                // Re-sincroniza con el backend (estado en server es la verdad).
+                refrescar(context)
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(
+                    mensajeEstado = "No se pudo registrar la toma: ${e.message ?: "intenta de nuevo"}"
+                )
+            }
+        }
+    }
+
+    // ----- Ajustes de shape -----
+
+    private fun TomaResponse.programadaParaLocal(): ZonedDateTime =
+        Instant.parse(programada_para).atZone(ZoneId.systemDefault())
+
+    private fun TomaResponse.aOcurrencia(
+        nombrePorId: Map<String, MedicamentoResponse>,
+    ): MedicationOccurrence {
+        val medicamento = nombrePorId[medicamento_id]
+        return MedicationOccurrence(
+            id = id,
+            medicationId = medicamento_id,
+            name = medicamento?.nombre
+                ?: nota
+                ?: "Medicamento",
+            dosage = medicamento?.let { "${it.dosis} ${it.unidad_dosis}" }
+                ?: dosageDe(this),
+            time = programadaParaLocal().format(formatoHora),
+            status = MedicationStatus.PENDING,
+            programadaIso = programada_para,
+            instrucciones = medicamento?.instrucciones,
+        )
+    }
+
+    private fun TomaResponse.aOcurrenciaHistorial(
+        nombrePorId: Map<String, MedicamentoResponse>,
+    ): MedicationOccurrence {
+        val estadoUI = if (estado == "TOMADA") {
+            MedicationStatus.TAKEN
+        } else if (estado == "OMITIDA") {
+            MedicationStatus.OMITTED
+        } else {
+            MedicationStatus.PENDING
+        }
+
+        // En TOMADA se prefiere la hora real de la toma si existe.
+        val momento = if (estado == "TOMADA" && tomada_en != null) {
+            Instant.parse(tomada_en).atZone(ZoneId.systemDefault())
+        } else {
+            programadaParaLocal()
+        }
+
+        val medicamento = nombrePorId[medicamento_id]
+
+        return MedicationOccurrence(
+            id = id,
+            medicationId = medicamento_id,
+            name = medicamento?.nombre
+                ?: nota
+                ?: "Medicamento",
+            dosage = medicamento?.let { "${it.dosis} ${it.unidad_dosis}" }
+                ?: dosageDe(this),
+            time = momento.format(formatoDiaHora),
+            status = estadoUI,
+            instrucciones = medicamento?.instrucciones,
+        )
+    }
+
+    /** Fallback si el catálogo no trae al medicamento de la toma. */
+    private fun dosageDe(toma: TomaResponse): String =
+        toma.dosis_tomada?.let { dosis ->
+            "${dosis.toString().trimEnd('0', '.')} mg"
+        } ?: "Dosis según indicación"
 }
