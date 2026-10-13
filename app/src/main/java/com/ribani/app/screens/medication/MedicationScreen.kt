@@ -15,9 +15,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.outlined.LocalPharmacy
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.Medication
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -26,6 +26,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -33,6 +34,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.ribani.app.ui.theme.ContenedorVerdeSuave
+import com.ribani.app.ui.theme.TextoOscuro
+import com.ribani.app.ui.theme.TextoPrincipal
+import com.ribani.app.ui.theme.TextoSecundario
+import com.ribani.app.ui.theme.TextoAjeno
+import com.ribani.app.ui.theme.SuperficieTarjetaTintada
+import com.ribani.app.ui.theme.VerdeBotonTomar
+import com.ribani.app.ui.theme.VerdeTomado
+import com.ribani.app.ui.theme.Rojo
 import com.ribani.app.data.repository.MedicationOccurrence
 import com.ribani.app.data.repository.MedicationUiState
 
@@ -43,7 +53,9 @@ fun MedicationScreen(
     onOpenHistory: () -> Unit,
     onTaken: (String) -> Unit,
     onPostpone: (String) -> Unit,
-    onOmit: (String) -> Unit
+    onOmit: (String) -> Unit,
+    /** Pull-to-refresh: recarga tomas/medicamentos del backend. */
+    onRefrescar: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -59,10 +71,10 @@ fun MedicationScreen(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    Icons.Outlined.LocalPharmacy,
+                    Icons.Rounded.Medication,
                     contentDescription = null,
                     modifier = Modifier.size(60.dp),
-                    tint = Color(0xFF211F24)
+                    tint = TextoOscuro
                 )
                 Text(
                     text = "Medicamentos",
@@ -73,10 +85,10 @@ fun MedicationScreen(
             }
             IconButton(onClick = onOpenHistory) {
                 Icon(
-                    Icons.Default.History,
+                    Icons.Rounded.History,
                     contentDescription = "Historial",
                     modifier = Modifier.size(36.dp),
-                    tint = Color(0xFF211F24)
+                    tint = TextoOscuro
                 )
             }
         }
@@ -88,48 +100,80 @@ fun MedicationScreen(
             modifier = Modifier.padding(bottom = 12.dp)
         )
 
-        if (uiState.pendingMedications.isEmpty()) {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 12.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9))
-            ) {
-                Row(
-                    modifier = Modifier.padding(20.dp),
-                    verticalAlignment = Alignment.CenterVertically
+        // Pull-to-refresh: deslizar hacia abajo recarga del backend
+        // (igual que salir y entrar, sin salir de la pantalla).
+        val refrescando = uiState.refrescando
+        PullToRefreshBox(
+            isRefreshing = refrescando,
+            onRefresh = onRefrescar,
+            modifier = Modifier.weight(1f)
+        ) {
+            if (uiState.pendingMedications.isEmpty()) {
+                ContenidoVacio(uiState)
+            } else {
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Icon(
-                        Icons.Default.Check,
-                        contentDescription = null,
-                        tint = Color(0xFF2E7D32),
-                        modifier = Modifier.size(32.dp)
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Text(
-                        text = "¡Al día! No tienes medicamentos pendientes por ahora.",
-                        fontSize = 18.sp,
-                        color = Color(0xFF2E7D32)
-                    )
+                    items(uiState.pendingMedications) { occurrence ->
+                        MedicationCard(
+                            occurrence = occurrence,
+                            onClick = { onOpenDetail(occurrence.medicationId) },
+                            onTaken = { onTaken(occurrence.id) },
+                            onPostpone = { onPostpone(occurrence.id) },
+                            onOmit = { onOmit(occurrence.id) }
+                        )
+                    }
                 }
             }
-        } else {
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.weight(1f)
-            ) {
-                items(uiState.pendingMedications) { occurrence ->
-                    MedicationCard(
-                        occurrence = occurrence,
-                        onClick = { onOpenDetail(occurrence.medicationId) },
-                        onTaken = { onTaken(occurrence.id) },
-                        onPostpone = { onPostpone(occurrence.id) },
-                        onOmit = { onOmit(occurrence.id) }
+        }
+    }
+}
+
+@Composable
+private fun ContenidoVacio(uiState: MedicationUiState) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 12.dp),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = ContenedorVerdeSuave)
+    ) {
+        Row(
+            modifier = Modifier.padding(20.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                Icons.Rounded.Check,
+                contentDescription = null,
+                tint = VerdeTomado,
+                modifier = Modifier.size(32.dp)
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column {
+                Text(
+                    text = "¡Al día! No tienes medicamentos pendientes por ahora.",
+                    fontSize = 18.sp,
+                    color = Color(0xFF2E7D32)
+                )
+                if (uiState.mensajeEstado != null) {
+                    Text(
+                        text = uiState.mensajeEstado,
+                        fontSize = 13.sp,
+                        color = Color(0xFF6B7280),
+                        modifier = Modifier.padding(top = 4.dp)
                     )
                 }
             }
         }
+    }
+    if (uiState.mensajeEstado != null) {
+        Text(
+            text = uiState.mensajeEstado,
+            fontSize = 13.sp,
+            color = Color(0xFF6B7280),
+            modifier = Modifier.padding(top = 8.dp)
+        )
     }
 }
 
@@ -146,7 +190,7 @@ private fun MedicationCard(
             .fillMaxWidth()
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFFECECFD))
+        colors = CardDefaults.cardColors(containerColor = SuperficieTarjetaTintada)
     ) {
         Column(modifier = Modifier.padding(18.dp)) {
             Row(
@@ -159,12 +203,12 @@ private fun MedicationCard(
                         text = occurrence.name,
                         fontSize = 24.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF151515)
+                        color = TextoPrincipal
                     )
                     Text(
                         text = "${occurrence.dosage} • ${occurrence.time}",
                         fontSize = 18.sp,
-                        color = Color(0xFF444444)
+                        color = TextoSecundario
                     )
                 }
             }
@@ -178,10 +222,16 @@ private fun MedicationCard(
                 Button(
                     onClick = onTaken,
                     modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50)),
+                    colors = ButtonDefaults.buttonColors(containerColor = VerdeBotonTomar),
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Text("Tomar", fontSize = 16.sp, color = Color.White)
+                Icon(
+                    androidx.compose.material.icons.Icons.Rounded.Check,
+                    contentDescription = null,
+                    modifier = Modifier.padding(start = 6.dp),
+                    tint = Color.White
+                )
                 }
 
                 OutlinedButton(
@@ -197,7 +247,7 @@ private fun MedicationCard(
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(12.dp)
                 ) {
-                    Text("Omitir", fontSize = 16.sp, color = Color(0xFFC62828))
+                    Text("Omitir", fontSize = 16.sp, color = Rojo)
                 }
             }
         }

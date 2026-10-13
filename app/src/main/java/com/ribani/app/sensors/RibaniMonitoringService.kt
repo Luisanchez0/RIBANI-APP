@@ -18,9 +18,26 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.ribani.app.FallAlertActivity
 import com.ribani.app.R
+import com.ribani.app.data.local.SessionManager
+import com.ribani.app.data.repository.AlertasRepository
+import com.ribani.app.data.repository.UbicacionesEscucha
+import com.ribani.app.data.repository.UbicacionesRepository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
+/**
+ * Servicio en primer plano: monitoreo de caídas (RIBANI_SENSOR) + escucha
+ * continua de ubicación (UbicacionesRepository / POST /ubicaciones en cada
+ * fix) mientras la app está abierta o en segundo plano.
+ */
 class RibaniMonitoringService : Service() {
     private lateinit var sensorManager: RibaniSensorManager
+    private var escuchaUbicaciones: UbicacionesEscucha? = null
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onCreate() {
         super.onCreate()
@@ -32,17 +49,68 @@ class RibaniMonitoringService : Service() {
         sensorManager.start()
     }
 
-    override fun onDestroy() {
-        sensorManager.stop()
-        super.onDestroy()
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Ubicaciones: solo si hay sesión con un adulto mayor autenticado.
+        // Se chequea en cada onStartCommand para detener/arrancar tras login o logout.
+        serviceScope.launch {
+            val haySesion = SessionManager(applicationContext).isLoggedIn.first()
+            if (haySesion) {
+                arrancarEscuchaSiHaceFalta()
+            } else {
+                detenerEscucha()
+            }
+        }
+        return START_STICKY
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int =
-        START_STICKY
+    private fun arrancarEscuchaSiHaceFalta() {
+        val hayPermiso = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.ACCESS_FINE_LOCATION,
+        ) == PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.ACCESS_COARSE_LOCATION,
+            ) == PackageManager.PERMISSION_GRANTED
+
+        if (!hayPermiso) return
+
+        if (escuchaUbicaciones == null) {
+            UbicacionesRepository.inicializar(applicationContext)
+            escuchaUbicaciones = UbicacionesRepository.iniciarEscucha(applicationContext)
+            escuchaUbicaciones?.iniciar()
+        }
+    }
+
+    private fun detenerEscucha() {
+        escuchaUbicaciones?.detener()
+        escuchaUbicaciones = null
+    }
+
+    override fun onDestroy() {
+        detenerEscucha()
+        sensorManager.stop()
+        serviceScope.cancel()
+        UbicacionesRepository.destructor()
+        super.onDestroy()
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     private fun showFallAlert() {
+        // La alerta CAIDA se registra en el backend al detectarla (regla:
+        // toda posible caída deja alerta abierta), independientemente de
+        // la confirmación del adulto en la pantalla.
+        serviceScope.launch {
+            AlertasRepository.enviarAlerta(
+                context = this@RibaniMonitoringService,
+                tipo = "CAIDA",
+                titulo = "Posible caída detectada",
+                descripcion = "RIBANI detectó una posible caída del adulto mayor " +
+                    "(caída libre, impacto, rotación e inactividad).",
+            )
+        }
+
         val intent = Intent(this, FallAlertActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or
                 Intent.FLAG_ACTIVITY_SINGLE_TOP or

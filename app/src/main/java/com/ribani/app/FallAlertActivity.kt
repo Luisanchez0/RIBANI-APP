@@ -6,8 +6,11 @@ import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.lifecycle.lifecycleScope
+import com.ribani.app.data.repository.AlertasRepository
 import com.ribani.app.screens.fall.FallAlertScreen
 import com.ribani.app.ui.theme.RIBANITheme
+import kotlinx.coroutines.launch
 
 class FallAlertActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -28,11 +31,35 @@ class FallAlertActivity : ComponentActivity() {
             RIBANITheme {
                 FallAlertScreen(
                     onOkay = {
+                        // "ESTOY BIEN": cierra la alerta CAIDA en el backend
+                        // (RESUELTA); el familiar la ve como confirmada.
+                        lifecycleScope.launch {
+                            AlertasRepository.confirmarBien()
+                        }
                         dismissAlert()
                         finish()
                     },
                     onNeedHelp = {
-                        // La alerta permanecerá activa hasta integrarse el backend.
+                        // "¡NECESITO AYUDA!": escala la CAIDA a EN_ATENCION y
+                        // además crea una SOS explícita para el panel familiar.
+                        lifecycleScope.launch {
+                            AlertasRepository.escalarAlerta()
+                            AlertasRepository.enviarAlerta(
+                                context = this@FallAlertActivity,
+                                tipo = "SOS",
+                                titulo = "El adulto mayor pide ayuda",
+                                descripcion =
+                                    "Presionó ¡NECESITO AYUDA! tras una alerta de posible caída.",
+                            )
+                        }
+                        dismissAlert()
+                        finish()
+                    },
+                    onTiempoAgotado = {
+                        // Sin confirmación: la alerta CAIDA sigue abierta en
+                        // el backend (se envió al detectar la caída).
+                        dismissAlert()
+                        finish()
                     }
                 )
             }

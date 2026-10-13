@@ -2,6 +2,17 @@ package com.ribani.app.sensors
 
 import kotlin.math.sqrt
 
+/**
+ * Detector de caídas en dos fases (caída libre → impacto → rotación → calma).
+ * Umbrales calibrados para evitar falsos positivos en la vida diaria:
+ * - FREE_FALL: la aceleración total baja ~2.0 m/s² aprox. (caída libre real ~0);
+ *   un gesto brusco no baja de eso por la gravedad efectiva del eje vertical.
+ * - IMPACT: pico típico de caída golpeando el suelo (un golpe suave al
+ *   apoyar el teléfono queda debajo).
+ * - ROTATION: voltereta del teléfono al caer; girarlo en la mano queda debajo.
+ * - INACTIVITY_MIN: tras el impacto la persona suele moverse; una caída real
+ *   termina en reposo relativo ~1 s. Evita disparar solo por el golpe.
+ */
 class FallDetector(
     private val onPossibleFall: () -> Unit
 ) {
@@ -62,12 +73,12 @@ class FallDetector(
     }
 
     private companion object {
-        const val FREE_FALL_THRESHOLD = 2.5f
-        const val IMPACT_THRESHOLD = 18f
-        const val ROTATION_THRESHOLD = 2.5f
+        const val FREE_FALL_THRESHOLD = 2.0f
+        const val IMPACT_THRESHOLD = 30f
+        const val ROTATION_THRESHOLD = 4.0f
         const val FREE_FALL_WINDOW_MS = 1_000L
-        const val INACTIVITY_MIN_MS = 500L
-        const val INACTIVITY_MAX_MS = 5_000L
-        const val DETECTION_COOLDOWN_MS = 30_000L
+        const val INACTIVITY_MIN_MS = 1_500L
+        const val INACTIVITY_MAX_MS = 10_000L
+        const val DETECTION_COOLDOWN_MS = 60_000L
     }
 }

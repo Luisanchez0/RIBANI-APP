@@ -21,7 +21,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
@@ -32,6 +32,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,6 +44,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import com.ribani.app.data.local.SessionManager
+import com.ribani.app.data.repository.UbicacionesRepository
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
 import com.google.maps.android.compose.GoogleMap
@@ -52,6 +55,8 @@ import com.google.maps.android.compose.MapUiSettings
 import com.google.maps.android.compose.Marker
 import com.google.maps.android.compose.MarkerState
 import com.google.maps.android.compose.rememberCameraPositionState
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -81,6 +86,7 @@ private fun formatTimestamp(timeMillis: Long): String {
 @Composable
 fun LocationScreen() {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val locationManager = remember(context) {
         context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
     }
@@ -135,6 +141,11 @@ fun LocationScreen() {
                     currentLocation = location
                     statusMessage = "Actualizando ubicación en tiempo real..."
                     lastUpdateMessage = "Última actualización: ${formatTimestamp(location.time)}"
+
+                    // Acumula en la cola del repositorio; el flush por lote
+                    // (POST /ubicaciones/lote, cada 30 s) hace el envío.
+                    UbicacionesRepository.inicializar(context)
+                    scope.launch { UbicacionesRepository.encolar(location) }
                 }
 
                 override fun onProviderEnabled(provider: String) {
@@ -211,7 +222,7 @@ fun LocationScreen() {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
-                    Icons.Default.LocationOn,
+                    Icons.Rounded.LocationOn,
                     contentDescription = null,
                     modifier = Modifier.padding(end = 16.dp),
                     tint = Color(0xFF1F2937)

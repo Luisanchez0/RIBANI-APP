@@ -14,9 +14,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.HighlightOff
-import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Cancel
+import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.Verified
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -87,10 +88,10 @@ fun MedicationHistoryScreen(
 @Composable
 private fun HistoryCard(occurrence: MedicationOccurrence) {
     val (statusText, statusColor, statusIcon) = when (occurrence.status) {
-        MedicationStatus.TAKEN -> Triple("Tomado", Color(0xFF2E7D32), Icons.Default.CheckCircle)
-        MedicationStatus.OMITTED -> Triple("Omitido", Color(0xFFC62828), Icons.Default.HighlightOff)
-        MedicationStatus.POSTPONED -> Triple("Pospuesto", Color(0xFFEF6C00), Icons.Default.Schedule)
-        MedicationStatus.PENDING -> Triple("Pendiente", Color.Gray, Icons.Default.Schedule)
+        MedicationStatus.TAKEN -> Triple("Tomado", com.ribani.app.ui.theme.VerdeTomado, Icons.Rounded.CheckCircle)
+        MedicationStatus.OMITTED -> Triple("Omitido", com.ribani.app.ui.theme.Rojo, Icons.Rounded.Cancel)
+        MedicationStatus.POSTPONED -> Triple("Pospuesto", com.ribani.app.ui.theme.NaranjaPostpuesto, Icons.Rounded.Schedule)
+        MedicationStatus.PENDING -> Triple("Pendiente", com.ribani.app.ui.theme.TextoAjeno, Icons.Rounded.Schedule)
     }
 
     Card(
